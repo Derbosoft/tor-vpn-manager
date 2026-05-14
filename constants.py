@@ -6,6 +6,7 @@ PROVIDERS_DIR = SCRIPT_DIR / "providers"
 CONFIG_DIR    = Path("/etc/tor-vpn-manager")
 CONFIG_FILE   = CONFIG_DIR / "config.json"
 AUTH_TMP      = CONFIG_DIR / "auth.tmp"
+TORRC_FILE    = CONFIG_DIR / "torrc"
 
 SERVICE_NAME  = "tor-vpn-manager"
 

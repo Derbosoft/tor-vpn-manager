@@ -3,10 +3,12 @@ Watchdog : surveillance de connectivité, débit, redémarrage automatique.
 """
 
 import socket
+import subprocess
+import sys
 import threading
 import time
 
-from .core import _run, CONN_FAIL_MAX
+from .core import _run, CONN_FAIL_MAX, REPAIR_THRESHOLD, SCRIPT_DIR
 
 
 class WatchdogMixin:
@@ -45,8 +47,27 @@ class WatchdogMixin:
             pass
         return 0
 
+    def _emergency_repair(self):
+        """Lance repair_network.sh --internal puis quitte : systemd relance le service."""
+        self._log(
+            f"Watchdog : {REPAIR_THRESHOLD} redémarrages échoués — "
+            "lancement de repair_network.sh …", "ERROR")
+        script = SCRIPT_DIR / "repair_network.sh"
+        try:
+            subprocess.run(["bash", str(script), "--internal"],
+                           timeout=60, check=False)
+        except Exception as e:
+            self._log(f"repair_network.sh : {e}", "ERROR")
+        self._log("Réparation terminée — sortie pour relance systemd.", "WARN")
+        sys.exit(1)
+
     def _full_restart(self):
-        self._log("Watchdog : redémarrage complet …", "ERROR")
+        self._full_restart_count += 1
+        self._log(
+            f"Watchdog : redémarrage complet "
+            f"({self._full_restart_count}/{REPAIR_THRESHOLD}) …", "ERROR")
+        if self._full_restart_count >= REPAIR_THRESHOLD:
+            self._emergency_repair()
         self._stop_vpn      = True
         self._stop_tor_flag = True
         self._stop_openvpn()
@@ -96,7 +117,8 @@ class WatchdogMixin:
 
             ok = self._check_connectivity()
             if ok:
-                self._conn_fail_count = 0
+                self._conn_fail_count    = 0
+                self._full_restart_count = 0
             else:
                 self._conn_fail_count += 1
                 self._log(

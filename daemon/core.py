@@ -15,7 +15,7 @@ from pathlib import Path
 # ── Imports projet ────────────────────────────────────────────────────────────
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from constants import CONFIG_DIR, CONFIG_FILE, AUTH_TMP, PROVIDERS_DIR, SCRIPT_DIR, DEFAULT_CONFIG
+from constants import CONFIG_DIR, CONFIG_FILE, AUTH_TMP, PROVIDERS_DIR, SCRIPT_DIR, DEFAULT_CONFIG, TORRC_FILE
 
 # ── Constantes daemon ─────────────────────────────────────────────────────────
 TOR_DATA_DIR      = CONFIG_DIR / "tor_data"
@@ -31,6 +31,7 @@ TOR_CTRL_PORT     = 9051
 RECONNECT_DELAY   = 15
 RECONNECT_MAX     = 5
 CONN_FAIL_MAX     = 2
+REPAIR_THRESHOLD  = 3   # full_restarts consécutifs avant réparation d'urgence
 
 
 # ── Helpers module-level (importables par les autres modules daemon) ───────────
@@ -74,6 +75,7 @@ class DaemonCore:
 
         self._conn_fail_count      = 0
         self._conn_restart_pending = False
+        self._full_restart_count   = 0
 
         self._tun_iface      = "tun0"
         self._tunnel_up      = False

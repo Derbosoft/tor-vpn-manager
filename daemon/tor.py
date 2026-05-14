@@ -8,7 +8,7 @@ import threading
 import time
 
 from .core import (
-    _run, TOR_DATA_DIR, TOR_CTRL_PORT,
+    _run, TOR_DATA_DIR, TOR_CTRL_PORT, TORRC_FILE,
     RECONNECT_DELAY, RECONNECT_MAX,
 )
 
@@ -40,14 +40,17 @@ class TorMixin:
         self._tor_ready.clear()
         self._stop_tor_flag = False
 
-        cmd = [
-            "tor",
-            "--SocksPort",            "9050",
-            "--ControlPort",          str(TOR_CTRL_PORT),
-            "--CookieAuthentication", "0",
-            "--DataDirectory",        str(TOR_DATA_DIR),
-            "--Log",                  "notice stdout",
-        ]
+        if TORRC_FILE.exists():
+            cmd = ["tor", "--torrc-file", str(TORRC_FILE), "--Log", "notice stdout"]
+        else:
+            cmd = [
+                "tor",
+                "--SocksPort",            "9050",
+                "--ControlPort",          str(TOR_CTRL_PORT),
+                "--CookieAuthentication", "0",
+                "--DataDirectory",        str(TOR_DATA_DIR),
+                "--Log",                  "notice stdout",
+            ]
 
         def _run_tor():
             import subprocess

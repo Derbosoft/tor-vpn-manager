@@ -23,7 +23,7 @@ from tkinter import filedialog, messagebox, scrolledtext, simpledialog, ttk
 from constants import (
     ACCENT, BG, BG2, BG3, CONFIG_DIR, CONFIG_FILE, DEFAULT_CONFIG,
     FG, FONT, FONT_MONO, GRAY, GREEN, PROVIDERS_DIR, RED, SCRIPT_DIR,
-    SERVICE_NAME, VERSION, YELLOW,
+    SERVICE_NAME, TORRC_FILE, VERSION, YELLOW,
 )
 
 
@@ -167,18 +167,21 @@ class ConfigApp:
         tab_excl = ttk.Frame(nb, padding=6)
         tab_set  = ttk.Frame(nb, padding=2)
         tab_lan  = ttk.Frame(nb, padding=2)
+        tab_tor  = ttk.Frame(nb, padding=2)
         tab_diag = ttk.Frame(nb, padding=6)
 
         nb.add(tab_prov, text="  Fournisseurs  ")
         nb.add(tab_excl, text="  Exclusions  ")
         nb.add(tab_set,  text="  Paramètres  ")
         nb.add(tab_lan,  text="  Partage LAN  ")
+        nb.add(tab_tor,  text="  Tor (torrc)  ")
         nb.add(tab_diag, text="  Diagnostic IA  ")
 
         self._build_providers_tab(tab_prov)
         self._build_exclusions_tab(tab_excl)
         self._build_settings_tab(self._scrollable(tab_set))
         self._build_lan_tab(self._scrollable(tab_lan))
+        self._build_tor_tab(tab_tor)
         self._build_diag_tab(tab_diag)
 
         save_bar = tk.Frame(self.root, bg=BG2, pady=6)
@@ -731,7 +734,38 @@ class ConfigApp:
                  text="Active/désactive systemctl enable tor-vpn-manager.",
                  fg=GRAY, bg=BG, font=("Segoe UI", 8)).pack(anchor=tk.W)
 
+        rep_frame = self._lf(parent, "Reparation réseau")
+        tk.Label(rep_frame,
+                 text="Nettoie les règles iptables, les routes et DNS bloqués,\n"
+                      "puis arrête le service pour une relance propre.",
+                 fg=GRAY, bg=BG, font=("Segoe UI", 8), justify=tk.LEFT
+                 ).pack(anchor=tk.W, pady=(0, 6))
+        ttk.Button(rep_frame, text="Réparer le réseau",
+                   command=self._run_repair).pack(anchor=tk.W)
+
         self._build_export_import(parent)
+
+    def _run_repair(self):
+        if not messagebox.askyesno(
+                "Réparer le réseau",
+                "Cela va arrêter le service et nettoyer toutes les règles réseau.\n"
+                "Continuer ?"):
+            return
+        script = SCRIPT_DIR / "repair_network.sh"
+        if not script.exists():
+            messagebox.showerror("Introuvable", f"{script} introuvable.")
+            return
+        try:
+            subprocess.Popen(
+                ["bash", str(script)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            messagebox.showinfo(
+                "Réparation lancée",
+                "repair_network.sh lancé.\n"
+                "Attendez quelques secondes puis redémarrez le service.")
+            self.root.after(3000, self._refresh_status)
+        except Exception as e:
+            messagebox.showerror("Erreur", str(e))
 
     def _build_export_import(self, parent):
         frame = self._lf(parent, "Export / Import de configuration")
@@ -1018,6 +1052,326 @@ class ConfigApp:
         subprocess.run(["systemctl", action, SERVICE_NAME], capture_output=True)
         self.config["autostart"] = enabled
         self._save_config()
+
+    # ── Onglet Tor (torrc) ────────────────────────────────────────────────────
+
+    _TOR_PROFILES = {
+        "stable": {
+            "avoid_disk":     True,  "safe_logging":   True,
+            "no_ipv6":        True,  "test_socks":     True,
+            "conn_padding":   False, "long_lived":     True,
+            "learn_timeout":  True,  "max_dirty":      3600,
+            "build_timeout":  60,    "new_circuit":    60,
+            "keepalive":      60,    "num_guards":     3,
+            "guard_lifetime": "2 months",
+            "exclude_exits":  "",    "strict_nodes":   False,
+        },
+        "anonymat": {
+            "avoid_disk":     True,  "safe_logging":   True,
+            "no_ipv6":        True,  "test_socks":     True,
+            "conn_padding":   True,  "long_lived":     True,
+            "learn_timeout":  True,  "max_dirty":      3600,
+            "build_timeout":  60,    "new_circuit":    120,
+            "keepalive":      60,    "num_guards":     3,
+            "guard_lifetime": "2 months",
+            "exclude_exits":  "{us},{gb},{ca},{au},{nz}",
+            "strict_nodes":   False,
+        },
+        "performance": {
+            "avoid_disk":     True,  "safe_logging":   False,
+            "no_ipv6":        True,  "test_socks":     False,
+            "conn_padding":   False, "long_lived":     True,
+            "learn_timeout":  True,  "max_dirty":      600,
+            "build_timeout":  15,    "new_circuit":    30,
+            "keepalive":      30,    "num_guards":     2,
+            "guard_lifetime": "1 months",
+            "exclude_exits":  "",    "strict_nodes":   False,
+        },
+    }
+
+    _TORRC_MANDATORY = (
+        "# === Paramètres obligatoires — ne pas supprimer ===\n"
+        "SocksPort 9050\n"
+        "ControlPort 9051\n"
+        "CookieAuthentication 0\n"
+        "DataDirectory /etc/tor-vpn-manager/tor_data\n"
+    )
+
+    def _build_tor_tab(self, parent):
+        # ── Layout : options en haut, expert en bas ────────────────────────
+        top = tk.Frame(parent, bg=BG)
+        top.pack(fill=tk.BOTH, expand=True)
+
+        # Scrollable pour les options
+        canvas = tk.Canvas(top, bg=BG, bd=0, highlightthickness=0)
+        vsb    = ttk.Scrollbar(top, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        opts_frame = ttk.Frame(canvas, padding=4)
+        win_id = canvas.create_window((0, 0), window=opts_frame, anchor="nw")
+        opts_frame.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+
+        def _enter(e):
+            canvas.bind_all("<Button-4>",  lambda ev: canvas.yview_scroll(-1, "units"))
+            canvas.bind_all("<Button-5>",  lambda ev: canvas.yview_scroll(1,  "units"))
+        def _leave(e):
+            canvas.unbind_all("<Button-4>")
+            canvas.unbind_all("<Button-5>")
+        canvas.bind("<Enter>", _enter)
+        canvas.bind("<Leave>", _leave)
+
+        # ── Profil ─────────────────────────────────────────────────────────
+        pf = ttk.LabelFrame(opts_frame, text="  Profil  ", padding=8)
+        pf.pack(fill=tk.X, pady=4)
+        self._tor_profile_var = tk.StringVar(value="stable")
+        for key, label in [
+            ("stable",      "VPN Stable — circuits longs et stables (recommandé)"),
+            ("anonymat",    "Anonymat renforcé — padding + exclusion Five Eyes"),
+            ("performance", "Performance — circuits courts et rapides"),
+        ]:
+            ttk.Radiobutton(pf, text=label, variable=self._tor_profile_var,
+                            value=key, command=self._on_tor_profile).pack(anchor=tk.W, pady=1)
+
+        # ── Circuit ────────────────────────────────────────────────────────
+        circ = ttk.LabelFrame(opts_frame, text="  Circuit  ", padding=8)
+        circ.pack(fill=tk.X, pady=4)
+
+        self._tor_long_lived_var   = tk.BooleanVar()
+        self._tor_learn_timeout_var = tk.BooleanVar()
+        for var, text in [
+            (self._tor_long_lived_var,    "LongLivedPorts 1194,443 — préfère des relais stables pour OpenVPN"),
+            (self._tor_learn_timeout_var, "LearnCircuitBuildTimeout 0 — timeout fixe (plus prévisible)"),
+        ]:
+            ttk.Checkbutton(circ, text=text, variable=var,
+                            command=self._update_torrc_preview).pack(anchor=tk.W, pady=1)
+
+        def _spin_row(parent, label, attr, from_, to_, step, unit=""):
+            r = ttk.Frame(parent)
+            r.pack(fill=tk.X, pady=2)
+            ttk.Label(r, text=label, width=26).pack(side=tk.LEFT)
+            var = tk.StringVar()
+            setattr(self, attr, var)
+            sb = ttk.Spinbox(r, from_=from_, to=to_, increment=step, width=7,
+                             textvariable=var, command=self._update_torrc_preview)
+            sb.pack(side=tk.LEFT, padx=4)
+            if unit:
+                tk.Label(r, text=unit, fg=GRAY, bg=BG,
+                         font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=2)
+            var.trace_add("write", lambda *_: self._update_torrc_preview())
+
+        _spin_row(circ, "MaxCircuitDirtiness :", "_tor_max_dirty_var",
+                  0, 7200, 60,  "s   (0 = défaut Tor)")
+        _spin_row(circ, "CircuitBuildTimeout :", "_tor_build_timeout_var",
+                  0,  300,  5,  "s   (0 = désactivé)")
+        _spin_row(circ, "NewCircuitPeriod :",    "_tor_new_circuit_var",
+                  0,  600, 10,  "s   (0 = défaut Tor)")
+        _spin_row(circ, "KeepalivePeriod :",     "_tor_keepalive_var",
+                  0,  300, 10,  "s   (0 = désactivé)")
+        _spin_row(circ, "NumEntryGuards :",      "_tor_num_guards_var",
+                  0,   10,  1,  "   (0 = défaut Tor)")
+
+        r_gl = ttk.Frame(circ)
+        r_gl.pack(fill=tk.X, pady=2)
+        ttk.Label(r_gl, text="GuardLifetime :", width=26).pack(side=tk.LEFT)
+        self._tor_guard_lifetime_var = tk.StringVar()
+        gl_combo = ttk.Combobox(r_gl, textvariable=self._tor_guard_lifetime_var,
+                                width=12, state="readonly",
+                                values=["", "1 months", "2 months", "3 months", "6 months"])
+        gl_combo.pack(side=tk.LEFT, padx=4)
+        tk.Label(r_gl, text="(vide = défaut Tor)", fg=GRAY, bg=BG,
+                 font=("Segoe UI", 8)).pack(side=tk.LEFT, padx=4)
+        self._tor_guard_lifetime_var.trace_add("write", lambda *_: self._update_torrc_preview())
+
+        # ── Confidentialité ────────────────────────────────────────────────
+        priv = ttk.LabelFrame(opts_frame, text="  Confidentialité  ", padding=8)
+        priv.pack(fill=tk.X, pady=4)
+        self._tor_avoid_disk_var   = tk.BooleanVar()
+        self._tor_safe_logging_var = tk.BooleanVar()
+        self._tor_no_ipv6_var      = tk.BooleanVar()
+        self._tor_test_socks_var   = tk.BooleanVar()
+        self._tor_conn_padding_var = tk.BooleanVar()
+        for var, text in [
+            (self._tor_avoid_disk_var,   "AvoidDiskWrites 1 — limite les écritures disque"),
+            (self._tor_safe_logging_var, "SafeLogging 1 — masque les IPs dans les logs Tor"),
+            (self._tor_no_ipv6_var,      "ClientUseIPv6 0 — désactive IPv6 pour Tor"),
+            (self._tor_test_socks_var,   "TestSocks 1 — avertit si une requête DNS locale est détectée"),
+            (self._tor_conn_padding_var, "ConnectionPadding 1 — résistance à l'analyse de trafic (↑ bande passante)"),
+        ]:
+            ttk.Checkbutton(priv, text=text, variable=var,
+                            command=self._update_torrc_preview).pack(anchor=tk.W, pady=1)
+
+        # ── Nœuds exclus ──────────────────────────────────────────────────
+        excl = ttk.LabelFrame(opts_frame, text="  Nœuds de sortie exclus  ", padding=8)
+        excl.pack(fill=tk.X, pady=4)
+        tk.Label(excl,
+                 text="Format ISO 3166-1 : {us},{gb},{ca}  —  laisser vide pour désactiver.",
+                 fg=GRAY, bg=BG, font=("Segoe UI", 8)).pack(anchor=tk.W)
+        r_ex = ttk.Frame(excl)
+        r_ex.pack(fill=tk.X, pady=(4, 0))
+        ttk.Label(r_ex, text="ExcludeExitNodes :", width=20).pack(side=tk.LEFT)
+        self._tor_exclude_var = tk.StringVar()
+        ttk.Entry(r_ex, textvariable=self._tor_exclude_var,
+                  width=32, font=FONT_MONO).pack(side=tk.LEFT, padx=4)
+        self._tor_exclude_var.trace_add("write", lambda *_: self._update_torrc_preview())
+        self._tor_strict_var = tk.BooleanVar()
+        ttk.Checkbutton(excl,
+                        text="StrictNodes 1 — strict (peut couper si aucun nœud disponible)",
+                        variable=self._tor_strict_var,
+                        command=self._update_torrc_preview).pack(anchor=tk.W, pady=(4, 0))
+
+        # ── Mode expert ────────────────────────────────────────────────────
+        exp = ttk.LabelFrame(opts_frame, text="  Mode expert — torrc complet  ", padding=8)
+        exp.pack(fill=tk.X, pady=4)
+        tk.Label(exp,
+                 text="Édition directe. Les paramètres obligatoires sont toujours préservés à l'application.",
+                 fg=GRAY, bg=BG, font=("Segoe UI", 8)).pack(anchor=tk.W)
+        self._torrc_text = scrolledtext.ScrolledText(
+            exp, font=FONT_MONO, bg=BG2, fg=FG, insertbackground=FG,
+            height=10, wrap=tk.NONE, relief=tk.FLAT, borderwidth=1)
+        self._torrc_text.pack(fill=tk.X, pady=(4, 0))
+
+        # ── Actions ────────────────────────────────────────────────────────
+        act = ttk.LabelFrame(opts_frame, text="  Actions  ", padding=8)
+        act.pack(fill=tk.X, pady=4)
+        btn_r = ttk.Frame(act)
+        btn_r.pack(fill=tk.X)
+        ttk.Button(btn_r, text="▶  Appliquer + Redémarrer le service",
+                   command=self._apply_torrc).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_r, text="↺  Réinitialiser (config minimale)",
+                   command=self._reset_torrc).pack(side=tk.LEFT)
+        self._tor_status_lbl = tk.Label(act, text="", bg=BG, fg=GRAY, font=FONT)
+        self._tor_status_lbl.pack(anchor=tk.W, pady=(6, 0))
+
+        # ── Init ───────────────────────────────────────────────────────────
+        self._on_tor_profile()
+        if TORRC_FILE.exists():
+            self._load_torrc_file()
+
+    def _on_tor_profile(self):
+        key  = self._tor_profile_var.get()
+        prof = self._TOR_PROFILES.get(key, {})
+        if not prof:
+            return
+        self._tor_avoid_disk_var.set(prof["avoid_disk"])
+        self._tor_safe_logging_var.set(prof["safe_logging"])
+        self._tor_no_ipv6_var.set(prof["no_ipv6"])
+        self._tor_test_socks_var.set(prof["test_socks"])
+        self._tor_conn_padding_var.set(prof["conn_padding"])
+        self._tor_long_lived_var.set(prof["long_lived"])
+        self._tor_learn_timeout_var.set(prof["learn_timeout"])
+        self._tor_max_dirty_var.set(str(prof["max_dirty"]))
+        self._tor_build_timeout_var.set(str(prof["build_timeout"]))
+        self._tor_new_circuit_var.set(str(prof["new_circuit"]))
+        self._tor_keepalive_var.set(str(prof["keepalive"]))
+        self._tor_num_guards_var.set(str(prof["num_guards"]))
+        self._tor_guard_lifetime_var.set(prof["guard_lifetime"])
+        self._tor_exclude_var.set(prof["exclude_exits"])
+        self._tor_strict_var.set(prof["strict_nodes"])
+        self._update_torrc_preview()
+
+    def _update_torrc_preview(self):
+        if not hasattr(self, "_torrc_text"):
+            return
+        self._torrc_text.delete("1.0", tk.END)
+        self._torrc_text.insert("1.0", self._build_torrc_from_widgets())
+
+    def _build_torrc_from_widgets(self) -> str:
+        lines = [self._TORRC_MANDATORY.rstrip(), "", "# === Paramètres personnalisés ==="]
+
+        if self._tor_avoid_disk_var.get():
+            lines.append("AvoidDiskWrites 1")
+        if self._tor_safe_logging_var.get():
+            lines.append("SafeLogging 1")
+        if self._tor_no_ipv6_var.get():
+            lines.append("ClientUseIPv6 0")
+        if self._tor_test_socks_var.get():
+            lines.append("TestSocks 1")
+        if self._tor_conn_padding_var.get():
+            lines.append("ConnectionPadding 1")
+        if self._tor_long_lived_var.get():
+            lines.append("LongLivedPorts 1194,443")
+        if self._tor_learn_timeout_var.get():
+            lines.append("LearnCircuitBuildTimeout 0")
+
+        for attr, key in [
+            ("_tor_max_dirty_var",      "MaxCircuitDirtiness"),
+            ("_tor_build_timeout_var",  "CircuitBuildTimeout"),
+            ("_tor_new_circuit_var",    "NewCircuitPeriod"),
+            ("_tor_keepalive_var",      "KeepalivePeriod"),
+            ("_tor_num_guards_var",     "NumEntryGuards"),
+        ]:
+            try:
+                v = int(getattr(self, attr).get())
+                if v > 0:
+                    lines.append(f"{key} {v}")
+            except (ValueError, AttributeError):
+                pass
+
+        gl = self._tor_guard_lifetime_var.get().strip()
+        if gl:
+            lines.append(f"GuardLifetime {gl}")
+
+        excl = self._tor_exclude_var.get().strip()
+        if excl:
+            lines.append(f"ExcludeExitNodes {excl}")
+            lines.append(f"StrictNodes {'1' if self._tor_strict_var.get() else '0'}")
+
+        return "\n".join(lines) + "\n"
+
+    def _load_torrc_file(self):
+        try:
+            content = TORRC_FILE.read_text()
+            self._torrc_text.delete("1.0", tk.END)
+            self._torrc_text.insert("1.0", content)
+        except Exception:
+            pass
+
+    def _apply_torrc(self):
+        content = self._torrc_text.get("1.0", tk.END).strip() + "\n"
+        # Garantit les paramètres obligatoires
+        for key in ("SocksPort", "ControlPort", "CookieAuthentication", "DataDirectory"):
+            if key not in content:
+                content = self._TORRC_MANDATORY + "\n" + content
+                break
+        try:
+            CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+            TORRC_FILE.write_text(content)
+            TORRC_FILE.chmod(0o600)
+            self._tor_status_lbl.config(
+                text="torrc sauvegardé — redémarrage du service …", fg=YELLOW)
+            self._svc_restart()
+            self.root.after(3500, lambda: self._tor_status_lbl.config(
+                text="✓ Appliqué.", fg=GREEN))
+            self.root.after(7000, lambda: self._tor_status_lbl.config(text=""))
+        except PermissionError:
+            self._tor_status_lbl.config(
+                text="Erreur : droits insuffisants (relancez avec sudo).", fg=RED)
+        except Exception as e:
+            self._tor_status_lbl.config(text=f"Erreur : {e}", fg=RED)
+
+    def _reset_torrc(self):
+        if not messagebox.askyesno(
+                "Réinitialiser",
+                "Supprimer le torrc personnalisé et redémarrer avec la configuration minimale ?"):
+            return
+        try:
+            TORRC_FILE.unlink(missing_ok=True)
+            self._tor_profile_var.set("stable")
+            self._on_tor_profile()
+            self._tor_status_lbl.config(
+                text="torrc supprimé — redémarrage avec config minimale …", fg=YELLOW)
+            self._svc_restart()
+            self.root.after(3500, lambda: self._tor_status_lbl.config(
+                text="✓ Réinitialisé.", fg=GREEN))
+            self.root.after(7000, lambda: self._tor_status_lbl.config(text=""))
+        except PermissionError:
+            self._tor_status_lbl.config(
+                text="Erreur : droits insuffisants (relancez avec sudo).", fg=RED)
+        except Exception as e:
+            self._tor_status_lbl.config(text=f"Erreur : {e}", fg=RED)
 
     # ── Fermeture ─────────────────────────────────────────────────────────────
 
