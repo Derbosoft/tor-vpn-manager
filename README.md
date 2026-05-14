@@ -1,6 +1,6 @@
 # Tor-VPN Manager — v3.1.0
 
-Daemon + interface graphique pour router **tout le trafic réseau via OpenVPN tunnelé dans Tor** sur Ubuntu/Debian. Le daemon tourne en arrière-plan en tant que service systemd et gère automatiquement Tor, OpenVPN, le kill switch iptables, le blocage IPv6, le partage LAN et la surveillance de connectivité.
+Daemon + interface graphique pour router **tout le trafic réseau via OpenVPN tunnelé dans Tor** sur Ubuntu/Debian. Le daemon tourne en arrière-plan en tant que service systemd et gère automatiquement Tor, OpenVPN, le blocage IPv6, le partage LAN et la surveillance de connectivité.
 
 ---
 
@@ -22,6 +22,7 @@ Daemon + interface graphique pour router **tout le trafic réseau via OpenVPN tu
 14. [Sécurité](#sécurité)
 15. [Premiers pas](#premiers-pas)
 16. [Désinstallation](#désinstallation)
+
 
 ---
 
@@ -48,7 +49,7 @@ Utilisateur
                                          ├── OpenVPN ──► SOCKS5 127.0.0.1:9050 ──► Tor ──► Internet
                                          │              (tunX, redirect-gateway)
                                          │
-                                         ├── iptables  (kill switch, IPv6 block, LAN sharing)
+                                         ├── iptables  (IPv6 block, LAN sharing)
                                          │
                                          └── Watchdog  (connectivité + débit)
 
@@ -137,7 +138,7 @@ tor-vpn-manager/
 │   ├── core.py          DaemonCore — état partagé, config, log, signaux, orchestration
 │   ├── tor.py           TorMixin — démarrage/arrêt Tor, nouveau circuit NEWNYM
 │   ├── network.py       NetworkMixin — gateway, SOCKS, protection routes Tor /32
-│   ├── firewall.py      FirewallMixin — iptables/ip6tables, kill switch, partage LAN, dnsmasq
+│   ├── firewall.py      FirewallMixin — iptables/ip6tables, blocage IPv6, partage LAN, dnsmasq
 │   ├── dns.py           DNSMixin — split DNS via systemd-resolved drop-in
 │   ├── openvpn.py       OpenVPNMixin — boucle OpenVPN, failover fournisseurs
 │   └── watchdog.py      WatchdogMixin — surveillance connectivité/débit, redémarrage complet
@@ -221,7 +222,6 @@ CIDRs et IPs qui contournent le tunnel et passent par la passerelle locale. Le d
 
 | Paramètre | Valeur par défaut | Description |
 |-----------|------------------|-------------|
-| **Kill switch** | désactivé | Bloque tout trafic non-VPN si le tunnel tombe |
 | **Bloquer IPv6** | désactivé | DROP ip6tables sur OUTPUT + FORWARD |
 | **Reconnexion auto** | activé | Relance le tunnel automatiquement |
 | **Débit min VPN (KB/s)** | 100 | En-dessous N fois de suite → failover. 0 = désactivé |
@@ -261,7 +261,7 @@ sudo tor-vpn disable     # Désactive le démarrage automatique
 tor-vpn gui
 
 # Surveillance
-tor-vpn status           # État complet : service, Tor, VPN, kill switch, DNS split, IP publique
+tor-vpn status           # État complet : service, Tor, VPN, DNS split, IP publique
 tor-vpn logs [n]         # n dernières lignes de journal (défaut : 60)
 tor-vpn follow           # Logs en direct (Ctrl+C pour quitter)
 tor-vpn ip               # IP publique actuelle
@@ -322,9 +322,8 @@ Le DNS split est appliqué **après** `Initialization Sequence Completed`, pas a
 **Séquence à la connexion :**
 Quand `Initialization Sequence Completed` est détecté :
 1. DNS split appliqué (après le script up d'OpenVPN)
-2. Kill switch activé (si configuré)
-3. Blocage IPv6 activé (si configuré)
-4. Partage LAN démarré (si `lan_auto = true`)
+2. Blocage IPv6 activé (si configuré)
+3. Partage LAN démarré (si `lan_auto = true`)
 
 ### Hook veille/réveil
 
@@ -335,24 +334,6 @@ Quand `Initialization Sequence Completed` est détecté :
 ## Chaînes iptables
 
 Le daemon crée des **chaînes nommées dédiées** pour un nettoyage propre sans interférer avec d'autres règles.
-
-### Kill switch — `TORVPN_KS` (OUTPUT)
-
-```
-RETURN  → lo
-RETURN  → tunX
-RETURN  → ESTABLISHED,RELATED
-DROP    → tout le reste
-```
-
-### Kill switch VMs — `TORVPN_KS_FWD` (FORWARD)
-
-```
-RETURN  → ESTABLISHED,RELATED
-RETURN  → virbr+ → virbr+
-RETURN  → virbr+ → tunX
-DROP    → virbr+ → tout le reste
-```
 
 ### Blocage IPv6 — `TORVPN_KS6` / `TORVPN_KS6_FWD`
 
@@ -400,10 +381,9 @@ Tous épuisés → retour au début → abandon après 5 tentatives
 2. SIGTERM → Tor
 3. Suppression des routes /32 Tor
 4. Démontage partage LAN + arrêt dnsmasq
-5. Suppression chaînes iptables kill switch
-6. Suppression chaînes ip6tables
-7. Suppression drop-in DNS split
-8. Suppression auth.tmp
+5. Suppression chaînes ip6tables
+6. Suppression drop-in DNS split
+7. Suppression auth.tmp
 ```
 
 ---
@@ -493,7 +473,6 @@ La réponse est affichée en **streaming** (token par token) dans le terminal ou
     }
   ],
   "auto_reconnect": true,
-  "kill_switch": false,
   "block_ipv6": false,
   "excluded_ips": ["192.168.1.0/24", "10.0.50.0/24"],
   "excluded_domains": [".derbo"],
@@ -531,8 +510,6 @@ La réponse est affichée en **streaming** (token par token) dans le terminal ou
 **Credentials VPN :** stockés en base64 dans `config.json`. C'est de l'obfuscation, **pas du chiffrement**. Le fichier est en mode `600` — accessible uniquement par root.
 
 **auth.tmp :** écrit en mode `600` juste avant de lancer OpenVPN, supprimé dans le bloc `finally` dès qu'OpenVPN a lu le fichier.
-
-**Kill switch :** règles insérées en **tête** (`-I`) des chaînes OUTPUT et FORWARD — s'appliquent avant toute autre règle existante.
 
 **Tor comme proxy :** le serveur VPN voit l'IP d'un nœud de sortie Tor, jamais votre IP réelle. Votre FAI voit que vous utilisez Tor, mais ne sait pas que vous utilisez un VPN ni quelle destination vous atteignez.
 

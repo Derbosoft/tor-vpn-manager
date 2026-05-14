@@ -1,5 +1,5 @@
 """
-Pare-feu : kill switch iptables/ip6tables, blocage IPv6, partage LAN.
+Pare-feu : blocage IPv6 iptables/ip6tables, partage LAN.
 """
 
 import shutil
@@ -8,7 +8,7 @@ import threading
 
 from .core import (
     _run,
-    KS_CHAIN, KS6_CHAIN, KS_FWD_CHAIN, KS6_FWD_CHAIN, KS_LAN_CHAIN,
+    KS6_CHAIN, KS6_FWD_CHAIN, KS_LAN_CHAIN,
     LAN_DNSMASQ_PID,
 )
 
@@ -29,61 +29,6 @@ class FirewallMixin:
             )
         except Exception:
             return []
-
-    # ── Kill switch host (OUTPUT) ─────────────────────────────────────────────
-
-    def _killswitch_on(self):
-        with self._ks_lock:
-            if self._killswitch_active:
-                return
-        tun = self._tun_iface
-        try:
-            _run("iptables", "-N", KS_CHAIN)
-            _run("iptables", "-F", KS_CHAIN)
-            _run("iptables", "-A", KS_CHAIN, "-o", "lo",  "-j", "RETURN")
-            _run("iptables", "-A", KS_CHAIN, "-o", tun,   "-j", "RETURN")
-            _run("iptables", "-A", KS_CHAIN,
-                 "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "RETURN")
-            _run("iptables", "-A", KS_CHAIN, "-j", "DROP")
-            r = _run("iptables", "-I", "OUTPUT", "-j", KS_CHAIN)
-            if r.returncode != 0:
-                self._log("Kill switch OUTPUT : échec iptables.", "ERROR")
-                return
-
-            _run("iptables", "-N", KS_FWD_CHAIN)
-            _run("iptables", "-F", KS_FWD_CHAIN)
-            _run("iptables", "-A", KS_FWD_CHAIN,
-                 "-m", "conntrack", "--ctstate", "ESTABLISHED,RELATED", "-j", "RETURN")
-            _run("iptables", "-A", KS_FWD_CHAIN, "-i", "virbr+", "-o", "virbr+", "-j", "RETURN")
-            _run("iptables", "-A", KS_FWD_CHAIN, "-i", "virbr+", "-o", tun,      "-j", "RETURN")
-            _run("iptables", "-A", KS_FWD_CHAIN, "-i", "virbr+", "-j", "DROP")
-            _run("iptables", "-I", "FORWARD", "-j", KS_FWD_CHAIN)
-
-            with self._ks_lock:
-                self._killswitch_active = True
-            bridges = self._get_libvirt_bridges()
-            if bridges:
-                self._log(f"Kill switch activé — host + VMs ({', '.join(bridges)}).", "OK")
-            else:
-                self._log("Kill switch activé — host protégé.", "OK")
-        except Exception as e:
-            self._log(f"Kill switch : {e}", "ERROR")
-
-    def _killswitch_off(self):
-        with self._ks_lock:
-            if not self._killswitch_active:
-                return
-            try:
-                _run("iptables", "-D", "OUTPUT",  "-j", KS_CHAIN)
-                _run("iptables", "-F", KS_CHAIN)
-                _run("iptables", "-X", KS_CHAIN)
-                _run("iptables", "-D", "FORWARD", "-j", KS_FWD_CHAIN)
-                _run("iptables", "-F", KS_FWD_CHAIN)
-                _run("iptables", "-X", KS_FWD_CHAIN)
-                self._killswitch_active = False
-                self._log("Kill switch désactivé.", "OK")
-            except Exception as e:
-                self._log(f"Kill switch off : {e}", "ERROR")
 
     # ── Blocage IPv6 ──────────────────────────────────────────────────────────
 

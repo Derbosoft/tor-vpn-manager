@@ -23,9 +23,7 @@ RESOLVED_DROP_IN  = Path("/etc/systemd/resolved.conf.d/tor-vpn-split.conf")
 LAN_DNSMASQ_PID   = CONFIG_DIR / "tor-vpn-dnsmasq.pid"
 TOR_ROUTES_FILE   = CONFIG_DIR / "tor-vpn-routes.txt"
 
-KS_CHAIN          = "TORVPN_KS"
 KS6_CHAIN         = "TORVPN_KS6"
-KS_FWD_CHAIN      = "TORVPN_KS_FWD"
 KS6_FWD_CHAIN     = "TORVPN_KS6_FWD"
 KS_LAN_CHAIN      = "TORVPN_LAN_FWD"
 
@@ -62,9 +60,7 @@ class DaemonCore:
         self._stop_flag          = False
         self._stop_vpn           = False
         self._stop_tor_flag      = False
-        self._killswitch_active  = False
         self._ipv6_blocked       = False
-        self._ks_lock            = threading.Lock()
         self._lan_active         = False
         self._dnsmasq_proc       = None
 
@@ -120,7 +116,6 @@ class DaemonCore:
         self._stop_tor()
         self._cleanup_tor_routes()
         self._teardown_lan_sharing()
-        self._killswitch_off()
         self._ipv6_block_off()
         self._remove_dns_split()
         if AUTH_TMP.exists():
@@ -134,12 +129,6 @@ class DaemonCore:
         """Supprime toutes les règles/routes orphelines d'une session précédente."""
         self._log("Nettoyage des règles orphelines …")
         for args in [
-            ("iptables",  "-D", "OUTPUT",  "-j", KS_CHAIN),
-            ("iptables",  "-F", KS_CHAIN),
-            ("iptables",  "-X", KS_CHAIN),
-            ("iptables",  "-D", "FORWARD", "-j", KS_FWD_CHAIN),
-            ("iptables",  "-F", KS_FWD_CHAIN),
-            ("iptables",  "-X", KS_FWD_CHAIN),
             ("ip6tables", "-D", "OUTPUT",  "-j", KS6_CHAIN),
             ("ip6tables", "-F", KS6_CHAIN),
             ("ip6tables", "-X", KS6_CHAIN),

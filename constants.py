@@ -13,7 +13,6 @@ DEFAULT_CONFIG = {
     "providers":         [],
     "mode":              "tor+vpn",
     "auto_reconnect":    True,
-    "kill_switch":       False,
     "block_ipv6":        False,
     "excluded_ips":      [],
     "excluded_domains":  [],

@@ -48,9 +48,6 @@ def collect_diag() -> dict:
     sections["iptables_output"] = _run(
         ["iptables", "-L", "OUTPUT", "-v", "--line-numbers", "-n"])
 
-    sections["iptables_ks_chain"] = _run(
-        ["iptables", "-L", "TORVPN_KS", "-v", "-n"])
-
     sections["ip6tables_output"] = _run(
         ["ip6tables", "-L", "OUTPUT", "-v", "--line-numbers", "-n"])
 
@@ -82,9 +79,6 @@ def collect_diag() -> dict:
 
     sections["iptables_forward"] = _run(
         ["iptables", "-L", "FORWARD", "-v", "--line-numbers", "-n"])
-
-    sections["iptables_ks_fwd"] = _run(
-        ["iptables", "-L", "TORVPN_KS_FWD", "-v", "-n"])
 
     sections["libvirt_networks"] = _run(
         ["virsh", "net-list", "--all"])
@@ -176,7 +170,7 @@ def format_diag(sections: dict) -> str:
     lines = [
         "Tu es un expert Linux en réseau, VPN, Tor et sécurité système.",
         "Analyse le rapport de diagnostic ci-dessous d'un système Ubuntu/Debian",
-        "qui utilise Tor-VPN Manager (OpenVPN routé via Tor avec kill switch iptables).",
+        "qui utilise Tor-VPN Manager (OpenVPN routé via Tor, protection iptables).",
         "",
         "Pour chaque problème détecté :",
         "  1. Explique brièvement le problème",
@@ -200,7 +194,6 @@ def format_diag(sections: dict) -> str:
         "network_interfaces":   "Interfaces réseau (ip addr)",
         "routing_table":        "Table de routage (ip route)",
         "iptables_output":      "iptables — chaîne OUTPUT",
-        "iptables_ks_chain":    "iptables — chaîne TORVPN_KS (kill switch host)",
         "ip6tables_output":     "ip6tables — chaîne OUTPUT",
         "dns_resolution":       "Résolution DNS (dig check.torproject.org)",
         "dns_resolved_status":  "systemd-resolved — statut",
@@ -213,7 +206,6 @@ def format_diag(sections: dict) -> str:
         "memory":               "Mémoire",
         "libvirt_bridges":      "Bridges libvirt/KVM (virbr*)",
         "iptables_forward":     "iptables — chaîne FORWARD (trafic VMs)",
-        "iptables_ks_fwd":      "iptables — chaîne TORVPN_KS_FWD (kill switch VMs)",
         "libvirt_networks":     "Réseaux libvirt (virsh net-list)",
         "nat_postrouting":      "iptables NAT — POSTROUTING (masquerade VMs/LAN)",
         "iptables_lan_fwd":     "iptables — chaîne TORVPN_LAN_FWD (partage LAN)",

@@ -86,13 +86,6 @@ case "${1:-help}" in
         else
             echo "  VPN        : inactif"
         fi
-        if [ "$EUID" -ne 0 ]; then
-            echo "  Kill switch: (sudo requis)"
-        elif iptables -L TORVPN_KS &>/dev/null 2>&1; then
-            echo "  Kill switch: actif"
-        else
-            echo "  Kill switch: inactif"
-        fi
         if [ -f /etc/systemd/resolved.conf.d/tor-vpn-split.conf ]; then
             DNS_SERVER=$(grep '^DNS=' /etc/systemd/resolved.conf.d/tor-vpn-split.conf | cut -d= -f2)
             echo "  DNS split  : actif  (→ $DNS_SERVER)"

@@ -52,7 +52,6 @@ class WatchdogMixin:
         self._stop_openvpn()
         self._stop_tor()
         self._cleanup_tor_routes()
-        self._killswitch_off()
         self._ipv6_block_off()
         time.sleep(6)
         self._stop_vpn             = False

@@ -180,8 +180,6 @@ class OpenVPNMixin:
                             # Appliquer le DNS split APRÈS que le script up d'OpenVPN
                             # ait tourné, pour éviter qu'il écrase notre config.
                             self._apply_dns_split()
-                            if self.config.get("kill_switch"):
-                                self._killswitch_on()
                             if self.config.get("block_ipv6"):
                                 self._ipv6_block_on()
                             if self.config.get("lan_auto") and self.config.get("lan_iface"):
@@ -197,7 +195,6 @@ class OpenVPNMixin:
 
             except FileNotFoundError:
                 self._log("openvpn introuvable : sudo apt install openvpn", "ERROR")
-                self._killswitch_off()
                 break
             except Exception as e:
                 self._log(f"OpenVPN : {e}", "ERROR")
@@ -206,12 +203,10 @@ class OpenVPNMixin:
                     AUTH_TMP.unlink()
 
             if self._stop_vpn or self._stop_flag:
-                self._killswitch_off()
                 self._ipv6_block_off()
                 break
 
             if not self.config.get("auto_reconnect", True):
-                self._killswitch_off()
                 self._ipv6_block_off()
                 break
 
@@ -231,6 +226,5 @@ class OpenVPNMixin:
                 f"({self._reconnect_vpn_count}/{RECONNECT_MAX}) …", "WARN")
             for _ in range(RECONNECT_DELAY):
                 if self._stop_flag or self._stop_vpn:
-                    self._killswitch_off()
                     return
                 time.sleep(1)

@@ -71,12 +71,6 @@ echo "[4/6] Création du service systemd …"
 # Script de nettoyage des règles iptables (appelé avant démarrage et après arrêt)
 cat > "$CLEANUP_SCRIPT" << 'CLEANUP_EOF'
 #!/bin/bash
-iptables  -D OUTPUT  -j TORVPN_KS       2>/dev/null
-iptables  -F TORVPN_KS                  2>/dev/null
-iptables  -X TORVPN_KS                  2>/dev/null
-iptables  -D FORWARD -j TORVPN_KS_FWD   2>/dev/null
-iptables  -F TORVPN_KS_FWD             2>/dev/null
-iptables  -X TORVPN_KS_FWD             2>/dev/null
 ip6tables -D OUTPUT  -j TORVPN_KS6      2>/dev/null
 ip6tables -F TORVPN_KS6                 2>/dev/null
 ip6tables -X TORVPN_KS6                 2>/dev/null

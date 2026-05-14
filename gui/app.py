@@ -246,7 +246,6 @@ class ConfigApp:
         self.config["excluded_domains"] = list(self.domain_list.get(0, tk.END))
         self.config["local_dns"]        = self.dns_var.get().strip()
         self.config["auto_reconnect"]   = self.auto_reconnect_var.get()
-        self.config["kill_switch"]      = self.kill_switch_var.get()
         self.config["block_ipv6"]       = self.block_ipv6_var.get()
         self.config["autostart"]        = self.autostart_var.get()
         try:
@@ -285,7 +284,6 @@ class ConfigApp:
         for ip in self.config.get("excluded_ips", []):
             self.ip_list.insert(tk.END, ip)
         self.auto_reconnect_var.set(self.config.get("auto_reconnect", True))
-        self.kill_switch_var.set(self.config.get("kill_switch", False))
         self.block_ipv6_var.set(self.config.get("block_ipv6", False))
         self.autostart_var.set(self.config.get("autostart", False))
         self.vpn_speed_var.set(str(self.config.get("vpn_min_speed_kbs", 100)))
@@ -690,9 +688,6 @@ class ConfigApp:
 
     def _build_settings_tab(self, parent):
         sec_frame = self._lf(parent, "Sécurité")
-        self.kill_switch_var = tk.BooleanVar()
-        ttk.Checkbutton(sec_frame, text="Kill switch — bloquer tout trafic si le tunnel tombe",
-                        variable=self.kill_switch_var).pack(anchor=tk.W, pady=2)
         self.block_ipv6_var = tk.BooleanVar()
         ttk.Checkbutton(sec_frame, text="Bloquer IPv6 quand le VPN est actif",
                         variable=self.block_ipv6_var).pack(anchor=tk.W, pady=2)
