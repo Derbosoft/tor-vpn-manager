@@ -1,5 +1,11 @@
 # Tor-VPN Manager — v3.3.0
 
+![Python](https://img.shields.io/badge/Python-3.8+-blue?logo=python)
+![Platform](https://img.shields.io/badge/Platform-Ubuntu%20%7C%20Debian-orange?logo=linux)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Version](https://img.shields.io/badge/Version-3.3.0-blue)
+![Systemd](https://img.shields.io/badge/Systemd-service-lightgrey?logo=linux)
+
 Daemon + interface graphique pour router **tout le trafic réseau via OpenVPN tunnelé dans Tor** sur Ubuntu/Debian. Le daemon tourne en arrière-plan en tant que service systemd et gère automatiquement Tor, OpenVPN, le blocage IPv6, le partage LAN et la surveillance de connectivité.
 
 ---
